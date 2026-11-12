@@ -482,7 +482,7 @@ class Recorder:
                         next_feat = now + FEATURE_PERIOD_S
                         with self._lock:
                             win = self._live[:, -config.WINDOW_SIZE:]
-                        if win.shape[1] >= config.WINDOW_SIZE // 2:
+                        if win.shape[1] >= config.WINDOW_SIZE:  # full window: welch needs a power-of-two length
                             fr = compute_frame(win, self.sampling_rate, blink, jaw)
                             feats = fr.as_dict()
                             feats["t"] = now
