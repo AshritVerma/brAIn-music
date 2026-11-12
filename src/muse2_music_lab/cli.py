@@ -104,6 +104,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
         cc_port=args.cc_port,
         cc_channel=args.cc_channel,
         no_cc=args.no_cc,
+        replay=_resolve_recording(args.replay) if args.replay else None,
     )
     return record_run(opts)
 
@@ -399,6 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="MIDI channel 1-16 for CCs and trigger notes (default: %(default)s).")
     prec.add_argument("--no-cc", action="store_true", dest="no_cc",
                       help="Disable the EEG -> MIDI CC output.")
+    prec.add_argument("--replay", default=None,
+                      help="Stream a saved recording (folder, name, or 'latest') instead of the headset, looping.")
     prec.set_defaults(func=_cmd_record)
 
     # ------- sonify (EEG -> audio files) -------

@@ -64,6 +64,7 @@ class RecordOptions:
     cc_port: str = "IAC Driver Bus 1"   # MIDI output for EEG -> CC (Logic Learn)
     cc_channel: int = 1
     no_cc: bool = False
+    replay: Optional[Path] = None        # stream a saved recording instead of the headset
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +312,53 @@ class MidiCapture:
 # ---------------------------------------------------------------------------
 
 
+class _ReplayShim:
+    """Feeds a saved eeg.csv out in real time, shaped like BrainFlow's MUSE_2 rows."""
+
+    def __init__(self, eeg: np.ndarray, rate: int) -> None:
+        from brainflow.board_shim import BoardIds, BoardShim
+
+        bid = BoardIds.MUSE_2_BOARD.value
+        self.rows = BoardShim.get_num_rows(bid)
+        self.eeg_rows = BoardShim.get_eeg_channels(bid)[:4]
+        self.ts_row = BoardShim.get_timestamp_channel(bid)
+        self.pkg_row = BoardShim.get_package_num_channel(bid)
+        self.eeg, self.rate, self.n = eeg, rate, eeg.shape[1]
+        self.t0 = time.time()
+        self.pos = 0
+
+    def get_board_data(self, *args, **kwargs) -> np.ndarray:
+        target = int((time.time() - self.t0) * self.rate)
+        k = max(0, target - self.pos)
+        out = np.zeros((self.rows, k))
+        if k:
+            idx = np.arange(self.pos, target)
+            out[self.eeg_rows, :] = self.eeg[:, idx % self.n]
+            out[self.ts_row, :] = self.t0 + idx / self.rate
+            out[self.pkg_row, :] = idx % 65536
+        self.pos = target
+        return out
+
+
+class _ReplayBoard:
+    def __init__(self, folder: Path) -> None:
+        from brainflow.board_shim import BoardIds
+
+        from muse2_music_lab.sonify import load_eeg
+
+        self.board_id = BoardIds.MUSE_2_BOARD.value
+        self.folder = folder
+        self._eeg, self._rate = load_eeg(folder)
+        self._shim = None
+
+    def start(self):
+        self._shim = _ReplayShim(self._eeg, self._rate)
+        return None
+
+    def stop(self) -> None:
+        self._shim = None
+
+
 @dataclass
 class _Session:
     folder: Path
@@ -400,6 +448,9 @@ class Recorder:
     def _make_board(self):
         from muse2_music_lab.eeg.board import Board
 
+        if self.opts.replay:
+            return _ReplayBoard(Path(self.opts.replay))
+
         if self.opts.simulate:
             from brainflow.board_shim import BoardIds
 
@@ -454,11 +505,14 @@ class Recorder:
                 motion_supported = True
             except Exception:
                 motion_supported = False
-            if self.opts.simulate:
-                motion_supported = False  # synthetic board has no aux preset
+            if self.opts.simulate or self.opts.replay:
+                motion_supported = False  # synthetic / replay boards have no aux preset
 
             self.status = "connected"
-            self.status_detail = "simulated EEG" if self.opts.simulate else "Muse 2 streaming"
+            self.status_detail = (
+                f"replaying {Path(self.opts.replay).name} (looping)" if self.opts.replay
+                else "simulated EEG" if self.opts.simulate else "Muse 2 streaming"
+            )
             self._event("connected", self.status_detail)
             blink = BlinkDetector()
             jaw = JawClenchDetector(self.sampling_rate)
@@ -635,7 +689,8 @@ class Recorder:
             "duration_s": round(dur, 3),
             "clock": "All *_time / unix_time columns are host Unix seconds (time.time()); BrainFlow stamps Muse samples on the same clock.",
             "eeg": {
-                "source": "synthetic" if self.opts.simulate else "Muse 2 (BrainFlow MUSE_2_BOARD)",
+                "source": (f"replay of {Path(self.opts.replay).name}" if self.opts.replay
+                           else "synthetic" if self.opts.simulate else "Muse 2 (BrainFlow MUSE_2_BOARD)"),
                 "sampling_rate": self.sampling_rate,
                 "channels": list(config.EEG_CHANNEL_NAMES),
                 "units": "microvolts",
