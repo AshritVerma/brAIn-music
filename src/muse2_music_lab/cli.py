@@ -130,6 +130,42 @@ def _cmd_sonify(args: argparse.Namespace) -> int:
     return sonify_run(folder, speeds=speeds, frames=args.frames)
 
 
+def _resolve_recording(target):
+    from pathlib import Path
+
+    from muse2_music_lab.recorder import DEFAULT_OUT_DIR
+
+    if target in (None, "latest"):
+        runs = sorted(p for p in DEFAULT_OUT_DIR.glob("*/eeg.csv") if p.stat().st_size > 64)
+        return runs[-1].parent if runs else None
+    folder = Path(target).expanduser()
+    if not (folder / "eeg.csv").exists() and (DEFAULT_OUT_DIR / target / "eeg.csv").exists():
+        folder = DEFAULT_OUT_DIR / target
+    return folder
+
+
+def _cmd_simulate_eeg(args: argparse.Namespace) -> int:
+    from muse2_music_lab.recorder import DEFAULT_OUT_DIR
+    from muse2_music_lab.stems import write_simulated_recording
+
+    write_simulated_recording(DEFAULT_OUT_DIR, args.seconds, seed=args.seed)
+    return 0
+
+
+def _cmd_stems(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from muse2_music_lab.stems import render_stems
+
+    folder = _resolve_recording(args.recording)
+    if folder is None:
+        print("[stems] no recordings yet. `muse2 record` or `muse2 simulate-eeg` first.")
+        return 1
+    render_stems(folder, key=args.key, bpm=args.bpm, bars=args.bars,
+                 out_dir=Path(args.out).expanduser() if args.out else None)
+    return 0
+
+
 def _cmd_bt_reset(_: argparse.Namespace) -> int:
     from muse2_music_lab.bt_reset import run as bt_reset_run
 
@@ -312,6 +348,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N seconds (0 = run until Ctrl-C)",
     )
     ps.set_defaults(func=_cmd_simulate)
+
+    # ------- simulate-eeg (synthetic recording) -------
+    psim = sub.add_parser("simulate-eeg", help="Write a SIMULATED EEG recording (for building before real data).")
+    psim.add_argument("--seconds", type=float, default=366.0)
+    psim.add_argument("--seed", type=int, default=None)
+    psim.set_defaults(func=_cmd_simulate_eeg)
+
+    # ------- stems (project-ready files) -------
+    pst = sub.add_parser("stems", help="Render drone / texture / hits WAVs in a project's key and tempo.")
+    pst.add_argument("recording", nargs="?", default="latest")
+    pst.add_argument("--key", default="C")
+    pst.add_argument("--bpm", type=float, default=105.0)
+    pst.add_argument("--bars", type=int, default=16)
+    pst.add_argument("--out", default=None, help="Output folder (default: <recording>/stems).")
+    pst.set_defaults(func=_cmd_stems)
 
     # ------- battery -------
     pb = sub.add_parser(
