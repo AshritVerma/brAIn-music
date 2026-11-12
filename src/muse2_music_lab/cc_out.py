@@ -17,6 +17,7 @@ Design choices that make it playable rather than jittery:
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from collections import deque
@@ -25,7 +26,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-DEFAULT_PORT = "IAC Driver Bus 1"
+DEFAULT_PORT = "loopMIDI" if sys.platform == "win32" else "IAC Driver Bus 1"
 
 # feature -> CC number. 20-31 are "undefined" in the MIDI spec, so they won't
 # collide with mod wheel (1), volume (7), sustain (64) etc.
@@ -87,7 +88,11 @@ class CCBridge:
             if match is None:
                 self.error = (
                     f"MIDI port '{self.port_name}' not found (have: {', '.join(names) or 'none'}). "
-                    "Enable the IAC Driver in Audio MIDI Setup > MIDI Studio."
+                    + (
+                        "Create a virtual port with loopMIDI (tobias-erichsen.de/software/loopmidi.html)."
+                        if sys.platform == "win32"
+                        else "Enable the IAC Driver in Audio MIDI Setup > MIDI Studio."
+                    )
                 )
                 return False
             self._port = mido.open_output(match)

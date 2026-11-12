@@ -394,7 +394,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Don't capture audio.")
     prec.add_argument("--no-midi", action="store_true", dest="no_midi",
                       help="Don't log MIDI.")
-    prec.add_argument("--cc-port", default="IAC Driver Bus 1", dest="cc_port",
+    prec.add_argument("--cc-port", default="loopMIDI" if os.name == "nt" else "IAC Driver Bus 1", dest="cc_port",
                       help="MIDI output for EEG -> CC (default: %(default)s).")
     prec.add_argument("--cc-channel", type=int, default=1, dest="cc_channel",
                       help="MIDI channel 1-16 for CCs and trigger notes (default: %(default)s).")

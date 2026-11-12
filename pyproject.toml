@@ -31,7 +31,8 @@ dependencies = [
     "anthropic>=0.40",
     # `record`: log MIDI (keyboard + Logic clock/MMC over IAC) next to EEG.
     "mido>=1.3",
-    "python-rtmidi>=1.5",
+    # No Windows wheels for Python 3.13+ yet; there MIDI logging / CC out is skipped.
+    "python-rtmidi>=1.5; sys_platform != 'win32' or python_version < '3.13'",
 ]
 
 [project.optional-dependencies]

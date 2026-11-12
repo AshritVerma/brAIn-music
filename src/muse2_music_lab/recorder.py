@@ -61,7 +61,7 @@ class RecordOptions:
     audio_device: Optional[str] = None   # name substring; None = auto (BlackHole/Loopback)
     no_audio: bool = False
     no_midi: bool = False
-    cc_port: str = "IAC Driver Bus 1"   # MIDI output for EEG -> CC (Logic Learn)
+    cc_port: str = "loopMIDI" if os.name == "nt" else "IAC Driver Bus 1"   # MIDI output for EEG -> CC (DAW Learn)
     cc_channel: int = 1
     no_cc: bool = False
     replay: Optional[Path] = None        # stream a saved recording instead of the headset
@@ -881,7 +881,9 @@ def run(opts: RecordOptions) -> int:
     def _term(*_):  # treat SIGTERM / closed-terminal like Ctrl-C so the session is saved
         raise KeyboardInterrupt
 
-    for sig in (signal.SIGTERM, signal.SIGHUP):
+    # SIGHUP doesn't exist on Windows; SIGBREAK (Ctrl-Break / console close) does.
+    sigs = [getattr(signal, n) for n in ("SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, n)]
+    for sig in sigs:
         try:
             signal.signal(sig, _term)
         except (ValueError, AttributeError, OSError):
