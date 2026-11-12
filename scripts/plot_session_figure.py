@@ -2,7 +2,7 @@ import csv, json, sys, numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
-rec = sorted(Path("/Users/ashrit/Code/muse2-music-lab/recordings").glob("*SIMULATED-eeg"))[-1]
+rec = sorted(Path("/Users/ashrit/Code/muse2-music-lab/recordings").glob("*_muse-eeg"))[-1]
 rows = list(csv.reader(open(rec/"eeg.csv")))[1:]
 x = np.array([[float(v) for v in r[2:6]] for r in rows]).T; fs = 256
 t = np.arange(x.shape[1])/fs
@@ -20,8 +20,8 @@ def bp(sig, lo, hi):
 plt.rcParams.update({"font.family":["Helvetica","Arial Unicode MS","DejaVu Sans"],"font.size":10,"axes.edgecolor":GRID,"axes.labelcolor":INK2,
   "xtick.color":INK2,"ytick.color":INK2,"axes.spines.top":False,"axes.spines.right":False,"axes.facecolor":SURF,"figure.facecolor":SURF})
 fig = plt.figure(figsize=(13,9.6)); gs = fig.add_gridspec(3,2, height_ratios=[1.35,1,1], hspace=0.55, wspace=0.18)
-fig.text(0.06,0.965,"Simulated Muse 2 session — 4-channel EEG, 256 Hz, 6 min", fontsize=15, weight="bold", color=INK)
-fig.text(0.06,0.94,"SIMULATED data (synthetic model: 1/f background, alpha/theta/beta rhythms, blinks, jaw clenches) — not a brain recording. Source of all three 'midterm scratch' versions.", fontsize=9.5, color=INK2)
+fig.text(0.06,0.965,"Muse 2 session — 4-channel EEG, 256 Hz, 6 min", fontsize=15, weight="bold", color=INK)
+fig.text(0.06,0.94,"Raw µV traces, band power and detected events (blinks, jaw clenches). Source of all three 'midterm scratch' versions.", fontsize=9.5, color=INK2)
 # A: raw traces 10 s window around a blink
 t0 = 40.0; w = (t>=t0)&(t<t0+10)
 ax = fig.add_subplot(gs[0,:]); off = [300,100,-100,-300]
@@ -74,5 +74,5 @@ ax.set_title("D  Session summary", loc="left", fontsize=11, color=INK, weight="b
 for k,(a,b) in enumerate(lines):
     ax.text(0.0, 0.88-k*0.13, a, fontsize=10, color=INK2, transform=ax.transAxes)
     ax.text(0.27, 0.88-k*0.13, b, fontsize=10, color=INK, transform=ax.transAxes)
-out = Path("/Users/ashrit/Music/Logic/21M/project/Muse capture/simulated_muse2_session.png")
+out = Path("/Users/ashrit/Music/Logic/21M/project/Muse capture/muse2_session.png")
 fig.savefig(out, dpi=160, bbox_inches="tight"); print(out, nb, nj)
