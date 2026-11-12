@@ -6,7 +6,9 @@ Subcommands:
   simulate   Synthetic brain -> TUI (headset-free dev).
   battery    Quick BLE telemetry read of the Muse 2 battery.
   bt-reset   Cycle macOS Bluetooth to recover from stuck BLE state.
-  record     Start/Stop page that records EEG + Logic audio + MIDI on one clock.
+  record     Start/Stop page that records EEG + Logic audio + MIDI on one clock,
+             and streams EEG -> MIDI CC to Logic over the IAC bus.
+  sonify     Turn a recording's EEG into WAVs (audification + wavetable).
 """
 
 from __future__ import annotations
@@ -99,8 +101,33 @@ def _cmd_record(args: argparse.Namespace) -> int:
         audio_device=args.audio_device,
         no_audio=args.no_audio,
         no_midi=args.no_midi,
+        cc_port=args.cc_port,
+        cc_channel=args.cc_channel,
+        no_cc=args.no_cc,
     )
     return record_run(opts)
+
+
+def _cmd_sonify(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from muse2_music_lab.recorder import DEFAULT_OUT_DIR
+    from muse2_music_lab.sonify import run as sonify_run
+
+    target = args.recording
+    if target in (None, "latest"):
+        # newest recording that actually has samples (skip accidental Start/Stop)
+        runs = sorted(p for p in DEFAULT_OUT_DIR.glob("*/eeg.csv") if p.stat().st_size > 64)
+        if not runs:
+            print("[sonify] no recordings yet. Record one with `muse2 record`.")
+            return 1
+        folder = runs[-1].parent
+    else:
+        folder = Path(target).expanduser()
+        if not (folder / "eeg.csv").exists() and (DEFAULT_OUT_DIR / target / "eeg.csv").exists():
+            folder = DEFAULT_OUT_DIR / target
+    speeds = tuple(float(x) for x in args.speeds.split(",") if x.strip())
+    return sonify_run(folder, speeds=speeds, frames=args.frames)
 
 
 def _cmd_bt_reset(_: argparse.Namespace) -> int:
@@ -315,7 +342,26 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Don't capture audio.")
     prec.add_argument("--no-midi", action="store_true", dest="no_midi",
                       help="Don't log MIDI.")
+    prec.add_argument("--cc-port", default="IAC Driver Bus 1", dest="cc_port",
+                      help="MIDI output for EEG -> CC (default: %(default)s).")
+    prec.add_argument("--cc-channel", type=int, default=1, dest="cc_channel",
+                      help="MIDI channel 1-16 for CCs and trigger notes (default: %(default)s).")
+    prec.add_argument("--no-cc", action="store_true", dest="no_cc",
+                      help="Disable the EEG -> MIDI CC output.")
     prec.set_defaults(func=_cmd_record)
+
+    # ------- sonify (EEG -> audio files) -------
+    pso = sub.add_parser(
+        "sonify",
+        help="Turn a recording's EEG into WAVs: audification at several speeds + a wavetable.",
+    )
+    pso.add_argument("recording", nargs="?", default="latest",
+                     help="Recording folder or its name under recordings/ (default: latest).")
+    pso.add_argument("--speeds", default="10,40,172",
+                     help="Comma-separated audification speed-ups (default: %(default)s).")
+    pso.add_argument("--frames", type=int, default=64,
+                     help="Wavetable frames (default: %(default)s).")
+    pso.set_defaults(func=_cmd_sonify)
 
     # ------- bt-reset -------
     pbt = sub.add_parser(

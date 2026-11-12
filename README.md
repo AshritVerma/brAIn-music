@@ -187,6 +187,26 @@ lands in `recordings/<date_time>_<label>/`:
 Every timestamp is host Unix time — the same clock BrainFlow stamps Muse
 samples with — so EEG, audio and MIDI line up without any post-hoc sync.
 
+**EEG → MIDI CC (live).** The `record` page has an *EEG → MIDI CC* panel. Tick
+*send* and alpha/beta/theta/focus/calm stream as CC 20–24 on channel 1 over the
+IAC Driver bus (each self-calibrated to its rolling 5th–95th percentile and
+smoothed at 30 Hz). To bind one in Logic: click the plugin knob, press ⌘L,
+hit **Learn** on that row (only that CC sweeps for 4 s), press ⌘L again. Set the
+track's automation to *Latch* and the performance is written as automation.
+Optional: blink → note C3, jaw clench → D3. Every CC sent is logged to `cc.csv`.
+
+**Sonify a recording.**
+
+```bash
+muse2 sonify                 # newest recording
+muse2 sonify <folder> --speeds 10,40,172 --frames 64
+```
+
+Writes `sonify/` inside the recording: `audify_xN.wav` (EEG sped up N×, stereo
+L/R hemispheres), a 2048-sample Serum/Vital wavetable built from the cleanest
+channel, and `wavetable_drone.wav` (that wavetable played as a scanning drone).
+All 16-bit / 44.1 kHz.
+
 **Capturing what Logic plays:** install [BlackHole 2ch](https://existential.audio/blackhole/)
 (`brew install blackhole-2ch`), then in Audio MIDI Setup create a
 *Multi-Output Device* = your speakers/headphones + BlackHole, and set it as

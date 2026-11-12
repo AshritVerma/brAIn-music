@@ -61,6 +61,9 @@ class RecordOptions:
     audio_device: Optional[str] = None   # name substring; None = auto (BlackHole/Loopback)
     no_audio: bool = False
     no_midi: bool = False
+    cc_port: str = "IAC Driver Bus 1"   # MIDI output for EEG -> CC (Logic Learn)
+    cc_channel: int = 1
+    no_cc: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +322,7 @@ class _Session:
     markers: _CsvSink
     audio: Optional[AudioCapture] = None
     midi: Optional[MidiCapture] = None
+    cc: Optional[_CsvSink] = None
     eeg_gap_s: float = 0.0
     last_eeg_t: Optional[float] = None
 
@@ -340,6 +344,7 @@ class Recorder:
     _latest_features: dict[str, Any] = field(default_factory=dict)
     _events: list[list[Any]] = field(default_factory=list)
     _motion_ok: Optional[bool] = None
+    cc: Any = None                            # CCBridge (EEG -> MIDI CC out)
 
     # ---------------- lifecycle ----------------
 
@@ -349,7 +354,19 @@ class Recorder:
         if not self.opts.no_audio:
             self.audio_device = pick_default_audio(inputs, self.opts.audio_device)
         if not self.opts.no_midi:
-            self.midi_ports = list_midi_inputs()
+            # Don't log our own CC output back in as "input" (IAC is a loopback).
+            cc_port = "" if self.opts.no_cc else self.opts.cc_port.lower()
+            self.midi_ports = [n for n in list_midi_inputs() if not cc_port or cc_port not in n.lower()]
+        if not self.opts.no_cc:
+            from muse2_music_lab.cc_out import CCBridge
+
+            self.cc = CCBridge(
+                get_features=lambda: self._latest_features,
+                log=self._log_cc,
+                port_name=self.opts.cc_port,
+                channel=max(0, min(15, self.opts.cc_channel - 1)),
+            )
+            self.cc.start()
         self._thread = threading.Thread(target=self._acquire_guarded, name="eeg-acquire", daemon=True)
         self._thread.start()
 
@@ -357,12 +374,20 @@ class Recorder:
         if self.session is not None:
             self.stop_recording()
         self._stop.set()
+        if self.cc is not None:
+            self.cc.stop()
         # Wait for the acquisition thread to release the BLE session cleanly.
         # Exiting mid-teardown leaves CoreBluetooth holding a stale handle, and
         # the NEXT run then connects and immediately drops.
         t = getattr(self, "_thread", None)
         if t is not None and t.is_alive():
             t.join(timeout=10)
+
+    def _log_cc(self, t: float, source: str, number: int, value: int) -> None:
+        with self._lock:
+            s = self.session
+            if s is not None and s.cc is not None:
+                s.cc.write_rows([[f"{t:.6f}", source, number, value]])
 
     def _event(self, kind: str, detail: str = "") -> None:
         row = [f"{time.time():.6f}", kind, detail]
@@ -542,6 +567,7 @@ class Recorder:
                 else _CsvSink(folder / "motion.csv", ["unix_time", "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]),
                 features=_CsvSink(folder / "features.csv", ["unix_time", "alpha", "beta", "theta", "focus", "calm", "blink", "jaw"]),
                 markers=_CsvSink(folder / "markers.csv", ["unix_time", "elapsed_s", "text"]),
+                cc=None if self.cc is None else _CsvSink(folder / "cc.csv", ["unix_time", "source", "number", "value"]),
             )
             self._events = []
             self.session = sess
@@ -585,7 +611,7 @@ class Recorder:
         stopped = time.time()
         audio = s.audio.stop() if s.audio else None
         midi = s.midi.stop() if s.midi else None
-        for sink in (s.eeg, s.motion, s.features, s.markers):
+        for sink in (s.eeg, s.motion, s.features, s.markers, s.cc):
             if sink is not None:
                 sink.close()
         if s.motion is not None and s.motion.rows == 0:
@@ -622,6 +648,7 @@ class Recorder:
             "markers": s.markers.rows,
             "audio": audio,
             "midi": midi,
+            "cc_out": None if s.cc is None else {"messages": s.cc.rows, "map": self.cc.cc_map if self.cc else None},
         }
         (s.folder / "session.json").write_text(json.dumps(summary, indent=2))
         self.last_summary = summary
@@ -689,6 +716,7 @@ class Recorder:
             "trace": trace,
             "features": feats,
             "recording": rec,
+            "cc": None if self.cc is None else self.cc.snapshot(),
             "last_summary": self.last_summary,
             "audio_device": self.audio_device,
             "midi_ports": self.midi_ports,
@@ -739,6 +767,23 @@ def _build_app(rec: Recorder):
     async def stop(_req):
         return web.json_response(await asyncio.to_thread(rec.stop_recording))
 
+    async def cc_set(req):
+        if rec.cc is None:
+            return web.json_response({"ok": False, "error": "CC output disabled (--no-cc)"})
+        b = await _body(req)
+        res = {"ok": True}
+        if "enabled" in b:
+            res = rec.cc.set_enabled(bool(b["enabled"]))
+        if "notes" in b:
+            rec.cc.set_notes(bool(b["notes"]))
+        return web.json_response(res)
+
+    async def cc_learn(req):
+        if rec.cc is None:
+            return web.json_response({"ok": False, "error": "CC output disabled (--no-cc)"})
+        b = await _body(req)
+        return web.json_response(rec.cc.learn(str(b.get("feature", ""))))
+
     async def mark(req):
         b = await _body(req)
         return web.json_response(rec.add_marker(str(b.get("text", ""))))
@@ -756,6 +801,8 @@ def _build_app(rec: Recorder):
     app.router.add_post("/start", start)
     app.router.add_post("/stop", stop)
     app.router.add_post("/mark", mark)
+    app.router.add_post("/cc", cc_set)
+    app.router.add_post("/cc/learn", cc_learn)
     app.router.add_post("/reveal", reveal)
     return app
 
@@ -770,6 +817,8 @@ def run(opts: RecordOptions) -> int:
     print(f"[record] recordings go to: {opts.out_dir}")
     print(f"[record] audio input: {rec.audio_device or 'none (install BlackHole to capture Logic)'}")
     print(f"[record] MIDI inputs: {', '.join(rec.midi_ports) or 'none'}")
+    if rec.cc is not None:
+        print(f"[record] CC out: {opts.cc_port} ch {opts.cc_channel} (off until you enable it on the page)")
     print("[record] Ctrl-C to quit (an in-progress recording is saved first).")
 
     import signal

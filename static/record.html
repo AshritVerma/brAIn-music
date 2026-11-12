@@ -32,6 +32,9 @@
   .midi label { display:flex; gap:6px; color:var(--text); margin:4px 0; font-size:13px; }
   #timer { font-variant-numeric:tabular-nums; font-size:26px; font-weight:600; }
   .kbd { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+  .ccrow { display:grid; grid-template-columns:70px 56px 1fr 64px; gap:8px; align-items:center; font-size:13px; margin:4px 0; }
+  .ccrow .bar > i { background:var(--good); transition:width .08s; }
+  .ccrow button.learning { background:var(--fair); color:#000; }
   #summary { white-space:pre-wrap; font:12px ui-monospace, Menlo, monospace; color:var(--dim); }
   .warn { color:var(--fair); font-size:12px; }
 </style>
@@ -61,6 +64,17 @@
     </div>
     <div class="dim" style="margin-top:6px"><span class="kbd">Space</span> start/stop &nbsp; <span class="kbd">M</span> mark (when not typing)</div>
     <div id="warns"></div>
+  </div>
+
+  <div class="panel" id="ccpanel">
+    <div class="row between">
+      <b>EEG → MIDI CC <span class="dim" id="ccport"></span></b>
+      <label class="row" style="margin:0;color:var(--text)"><input type="checkbox" id="ccon"> send</label>
+    </div>
+    <div class="dim" style="margin:4px 0 8px">In Logic: click a plugin knob, press ⌘L (Learn), then hit <b>Learn</b> on a row here — only that CC moves. ⌘L again to finish.</div>
+    <div id="ccrows"></div>
+    <label class="row" style="margin-top:8px;color:var(--text)"><input type="checkbox" id="notes"> blink → note C3, jaw clench → note D3</label>
+    <div class="warn" id="ccerr"></div>
   </div>
 
   <div class="panel">
@@ -152,6 +166,20 @@ async function tick() {
   } else {
     $("recinfo").textContent = "not recording";
   }
+  if (s.cc) {
+    $("ccport").textContent = `→ ${s.cc.port} · ch ${s.cc.channel}`;
+    if (document.activeElement !== $("ccon")) $("ccon").checked = s.cc.enabled;
+    if (document.activeElement !== $("notes")) $("notes").checked = s.cc.notes;
+    $("ccerr").textContent = s.cc.error || "";
+    $("ccrows").innerHTML = s.cc.map.map(r => {
+      const v = r.value ?? 0, learning = s.cc.learning === r.feature;
+      return `<div class="ccrow"><span>${r.feature}</span><span class="dim">CC ${r.cc}</span>` +
+        `<div class="bar"><i style="width:${v / 127 * 100}%"></i></div>` +
+        `<button class="small ${learning ? "learning" : ""}" data-learn="${r.feature}">${learning ? "sending…" : "Learn"}</button></div>`;
+    }).join("");
+  } else {
+    $("ccpanel").style.display = "none";
+  }
   if (s.last_summary) {
     const L = s.last_summary;
     $("summary").textContent = `${L.folder}\n${L.duration_s}s · EEG ${L.eeg.samples} samples (${L.eeg.effective_rate} Hz, gaps ${L.eeg.gap_seconds}s)\n` +
@@ -180,6 +208,12 @@ async function mark() {
 
 $("big").onclick = toggle;
 $("markbtn").onclick = mark;
+$("ccon").onchange = async (e) => { const r = await api("/cc", { enabled: e.target.checked }); if (!r.ok) { e.target.checked = false; $("ccerr").textContent = r.error; } };
+$("notes").onchange = (e) => api("/cc", { notes: e.target.checked });
+$("ccrows").addEventListener("click", async (e) => {
+  const f = e.target.dataset && e.target.dataset.learn;
+  if (f) { const r = await api("/cc/learn", { feature: f }); if (!r.ok) $("ccerr").textContent = r.error; }
+});
 $("reveal").onclick = () => api("/reveal", {});
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
