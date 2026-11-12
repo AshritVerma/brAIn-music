@@ -6,6 +6,7 @@ Subcommands:
   simulate   Synthetic brain -> TUI (headset-free dev).
   battery    Quick BLE telemetry read of the Muse 2 battery.
   bt-reset   Cycle macOS Bluetooth to recover from stuck BLE state.
+  record     Start/Stop page that records EEG + Logic audio + MIDI on one clock.
 """
 
 from __future__ import annotations
@@ -83,6 +84,23 @@ def _cmd_battery(_: argparse.Namespace) -> int:
     from muse2_music_lab.battery import run as battery_run
 
     return battery_run()
+
+
+def _cmd_record(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from muse2_music_lab.recorder import DEFAULT_OUT_DIR, RecordOptions, run as record_run
+
+    opts = RecordOptions(
+        http_port=args.http_port,
+        out_dir=Path(args.out).expanduser() if args.out else DEFAULT_OUT_DIR,
+        simulate=args.simulate,
+        no_browser=args.no_browser,
+        audio_device=args.audio_device,
+        no_audio=args.no_audio,
+        no_midi=args.no_midi,
+    )
+    return record_run(opts)
 
 
 def _cmd_bt_reset(_: argparse.Namespace) -> int:
@@ -274,6 +292,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Connect briefly to the Muse 2 and print its battery percentage.",
     )
     pb.set_defaults(func=_cmd_battery)
+
+    # ------- record (EEG + Logic session capture) -------
+    prec = sub.add_parser(
+        "record",
+        help=(
+            "Open a Start/Stop control page and record raw EEG, features, "
+            "Logic's audio (via a loopback input) and MIDI on one clock."
+        ),
+    )
+    prec.add_argument("--http-port", type=int, default=8770, dest="http_port",
+                      help="Control page port (default: %(default)s).")
+    prec.add_argument("--out", default=None,
+                      help="Recordings folder (default: <repo>/recordings).")
+    prec.add_argument("--simulate", action="store_true",
+                      help="Use BrainFlow's synthetic board instead of the Muse 2.")
+    prec.add_argument("--no-browser", action="store_true", dest="no_browser",
+                      help="Don't auto-open the control page.")
+    prec.add_argument("--audio-device", default=None, dest="audio_device",
+                      help="Audio input name (substring) to capture. Default: auto-pick BlackHole/Loopback.")
+    prec.add_argument("--no-audio", action="store_true", dest="no_audio",
+                      help="Don't capture audio.")
+    prec.add_argument("--no-midi", action="store_true", dest="no_midi",
+                      help="Don't log MIDI.")
+    prec.set_defaults(func=_cmd_record)
 
     # ------- bt-reset -------
     pbt = sub.add_parser(

@@ -29,6 +29,9 @@ dependencies = [
     # Prompt-guard rewrite layer (Claude Opus translates Lyria-filtered
     # prompts into pure sonic descriptors). See src/muse2_music_lab/music/.
     "anthropic>=0.40",
+    # `record`: log MIDI (keyboard + Logic clock/MMC over IAC) next to EEG.
+    "mido>=1.3",
+    "python-rtmidi>=1.5",
 ]
 
 [project.optional-dependencies]

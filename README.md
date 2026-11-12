@@ -162,6 +162,43 @@ Live `rich` TUI showing band powers, asymmetry, blink/jaw triggers,
 and the BLE connection state. Press **r** + Enter to recalibrate, **q**
 + Enter to quit.
 
+### Record EEG while producing in Logic
+
+```bash
+muse2 record                 # real Muse 2
+muse2 record --simulate      # synthetic EEG, no headset
+```
+
+Opens a control page at `http://localhost:8770/` with a live trace,
+per-channel contact quality, and a big **Start / Stop** button
+(`Space` toggles, `M` drops a marker). The headset stays connected the
+whole time, so Start/Stop never has to reconnect over Bluetooth. Each take
+lands in `recordings/<date_time>_<label>/`:
+
+| file | what |
+| --- | --- |
+| `eeg.csv` | raw EEG, 256 Hz, µV: `unix_time, package_num, TP9, AF7, AF8, TP10` |
+| `motion.csv` | accelerometer + gyro (when the headset streams them) |
+| `features.csv` | 4 Hz alpha/beta/theta/focus/calm/blink/jaw (same math as `perform`) |
+| `audio.wav` + `audio_sync.csv` | Logic's output via a loopback input, 24-bit, with frame↔time sync rows |
+| `midi.csv` | every MIDI message on the selected inputs |
+| `markers.csv`, `events.csv`, `session.json` | your marks, connect/drop log, summary |
+
+Every timestamp is host Unix time — the same clock BrainFlow stamps Muse
+samples with — so EEG, audio and MIDI line up without any post-hoc sync.
+
+**Capturing what Logic plays:** install [BlackHole 2ch](https://existential.audio/blackhole/)
+(`brew install blackhole-2ch`), then in Audio MIDI Setup create a
+*Multi-Output Device* = your speakers/headphones + BlackHole, and set it as
+Logic's output (Logic → Settings → Audio → Output). `muse2 record`
+auto-selects BlackHole as its input.
+
+**Logging MIDI / Logic's timeline:** your keyboard shows up automatically.
+To also capture Logic's transport position, enable the IAC Driver in Audio
+MIDI Setup, then in Logic → Project Settings → Synchronization → MIDI turn on
+*Transmit MIDI Clock* and *MMC/MTC* to the IAC bus. Song position and
+start/stop then land in `midi.csv` next to the EEG.
+
 ### BLE operator tools
 
 ```bash
