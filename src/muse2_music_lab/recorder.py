@@ -350,12 +350,19 @@ class Recorder:
             self.audio_device = pick_default_audio(inputs, self.opts.audio_device)
         if not self.opts.no_midi:
             self.midi_ports = list_midi_inputs()
-        threading.Thread(target=self._acquire_guarded, name="eeg-acquire", daemon=True).start()
+        self._thread = threading.Thread(target=self._acquire_guarded, name="eeg-acquire", daemon=True)
+        self._thread.start()
 
     def shutdown(self) -> None:
         if self.session is not None:
             self.stop_recording()
         self._stop.set()
+        # Wait for the acquisition thread to release the BLE session cleanly.
+        # Exiting mid-teardown leaves CoreBluetooth holding a stale handle, and
+        # the NEXT run then connects and immediately drops.
+        t = getattr(self, "_thread", None)
+        if t is not None and t.is_alive():
+            t.join(timeout=10)
 
     def _event(self, kind: str, detail: str = "") -> None:
         row = [f"{time.time():.6f}", kind, detail]
@@ -629,19 +636,34 @@ class Recorder:
         quality = []
         trace = []
         if live is not None and live.shape[1] > 0:
-            one_s = live[:, -self.sampling_rate:]
-            for ch in range(live.shape[0]):
-                x = one_s[ch] - np.mean(one_s[ch])
-                sd = float(np.std(x))
-                if sd < 0.5:
-                    q = "flat"
-                elif sd > 150:
-                    q = "noisy"
+            # Contact quality on the last 2 s: judge the 1-40 Hz EEG band (drift
+            # and mains hum removed), and report the 60 Hz share separately --
+            # a sensor that is mostly hum is not touching skin.
+            seg = live[:, -2 * self.sampling_rate:]
+            n = seg.shape[1]
+            freqs = np.fft.rfftfreq(n, 1.0 / self.sampling_rate)
+            for ch in range(seg.shape[0]):
+                x = seg[ch] - np.mean(seg[ch])
+                spec = np.fft.rfft(x)
+                power = np.abs(spec) ** 2
+                eeg_band = (freqs >= 1) & (freqs <= 40)
+                filtered = np.fft.irfft(np.where(eeg_band, spec, 0), n)
+                sd = float(np.std(filtered))
+                total = float(power[(freqs >= 1) & (freqs < 100)].sum()) or 1.0
+                hum = float(power[(freqs >= 55) & (freqs <= 65)].sum()) / total
+                railed = float(np.mean(np.abs(seg[ch]) >= 999))
+                if railed > 0.05 or sd < 0.5:
+                    q = "no contact"
+                elif hum > 0.5:
+                    q = "hum"
                 elif sd > 60:
+                    q = "noisy"
+                elif sd > 30:
                     q = "fair"
                 else:
                     q = "good"
-                quality.append({"name": config.EEG_CHANNEL_NAMES[ch], "std_uv": round(sd, 1), "q": q})
+                quality.append({"name": config.EEG_CHANNEL_NAMES[ch], "std_uv": round(sd, 1),
+                                "hum_pct": round(hum * 100), "q": q})
             two = live[:, -2 * self.sampling_rate:]
             step = max(1, two.shape[1] // 200)
             dec = two[:, ::step]
@@ -779,8 +801,8 @@ def run(opts: RecordOptions) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        print("[record] disconnecting from the headset...", flush=True)
         rec.shutdown()
-        time.sleep(0.3)
         if rec.last_summary:
             print(f"[record] last session saved: {rec.last_summary['folder']}")
     return 0

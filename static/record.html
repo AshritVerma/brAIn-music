@@ -20,7 +20,7 @@
   .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px; }
   .chip { border-radius:8px; padding:6px; text-align:center; font-size:12px; background:#20232a; border:1px solid var(--line); }
   .chip b { display:block; font-size:13px; }
-  .chip.good { border-color:var(--good); } .chip.fair { border-color:var(--fair); } .chip.noisy,.chip.flat { border-color:var(--bad); }
+  .chip.good { border-color:var(--good); } .chip.fair { border-color:var(--fair); } .chip.noisy,.chip.hum,.chip.nocontact { border-color:var(--bad); }
   .bars { display:grid; grid-template-columns:60px 1fr; gap:4px 8px; align-items:center; font-size:12px; margin-top:8px; }
   .bar { height:6px; background:#20232a; border-radius:3px; overflow:hidden; } .bar > i { display:block; height:100%; background:var(--accent); width:0; transition:width .2s; }
   #big { width:100%; padding:18px; font-size:20px; font-weight:600; border:0; border-radius:12px; cursor:pointer; background:#2a2f38; color:var(--text); }
@@ -134,7 +134,7 @@ async function tick() {
   $("status").textContent = s.status; $("dot").className = "dot " + s.status;
   $("detail").textContent = s.detail; $("sim").textContent = s.simulate ? "SIMULATED EEG" : "";
   drawTrace(s.trace);
-  $("chips").innerHTML = s.quality.map(q => `<div class="chip ${q.q}"><b>${q.name}</b>${q.q} · ${q.std_uv}µV</div>`).join("");
+  $("chips").innerHTML = s.quality.map(q => `<div class="chip ${q.q.replace(' ','')}" title="1-40 Hz signal ${q.std_uv} µV, 60 Hz hum ${q.hum_pct}%"><b>${q.name}</b>${q.q} · ${q.std_uv}µV${q.hum_pct >= 20 ? ' · hum ' + q.hum_pct + '%' : ''}</div>`).join("");
   const f = s.features || {};
   const bars = ["alpha", "beta", "theta", "focus", "calm"];
   $("bars").innerHTML = bars.map(k => {
